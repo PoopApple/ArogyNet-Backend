@@ -20,7 +20,13 @@ const videoRoutes = require('./Routes/video');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, { 
+  cors: { origin: '*', credentials: true },
+  transports: ['websocket', 'polling'],
+  pingInterval: 25000,
+  pingTimeout: 60000,
+  allowEIO3: true
+});
 
 const PORT = process.env.PORT || 8090;
 
@@ -52,7 +58,9 @@ io.on('connection', (socket) => {
     // expect the client to emit `identify` with their userId after connecting
     socket.on('identify', (userId) => {
         if (!userId) return;
+        console.log('👤 User identified:', userId, 'Socket ID:', socket.id);
         onlineUsers.set(userId.toString(), socket.id);
+        console.log('📊 onlineUsers now:', Array.from(onlineUsers.entries()));
         io.emit('presence', { userId, online: true });
     });
 
@@ -64,6 +72,78 @@ io.on('connection', (socket) => {
     socket.on('notify', ({ toUserId, notification }) => {
         const targetSocket = onlineUsers.get(String(toUserId));
         if (targetSocket) io.to(targetSocket).emit('notification', notification);
+    });
+
+    // --- WebRTC Signaling Handlers ---
+    socket.on('sendOffer', ({ remoteUserId, offer }) => {
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        if (targetSocket) {
+            io.to(targetSocket).emit('incomingOffer', { offer });
+        }
+    });
+
+    socket.on('sendAnswer', ({ remoteUserId, answer }) => {
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        if (targetSocket) {
+            io.to(targetSocket).emit('incomingAnswer', { answer });
+        }
+    });
+
+    socket.on('sendIceCandidate', ({ remoteUserId, candidate }) => {
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        if (targetSocket) {
+            io.to(targetSocket).emit('incomingIceCandidate', { candidate });
+        }
+    });
+
+    socket.on('rejectCall', ({ remoteUserId }) => {
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        if (targetSocket) {
+            io.to(targetSocket).emit('callRejected');
+        }
+    });
+
+    socket.on('callEnded', ({ remoteUserId }) => {
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        if (targetSocket) {
+            io.to(targetSocket).emit('callEnded');
+        }
+    });
+
+    socket.on('requestOffer', ({ remoteUserId, appointmentId }) => {
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        if (targetSocket) {
+            io.to(targetSocket).emit('requestOffer', { appointmentId });
+        }
+    });
+
+    socket.on('incomingVideoCall', ({ remoteUserId, callerName, appointmentId }) => {
+        console.log('📞 incomingVideoCall - remoteUserId:', remoteUserId);
+        console.log('📞 onlineUsers map:', Array.from(onlineUsers.entries()));
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        console.log('📞 targetSocket:', targetSocket);
+        if (targetSocket) {
+            console.log('✅ Emitting incomingVideoCall to socket:', targetSocket);
+            io.to(targetSocket).emit('incomingVideoCall', {
+                callerName,
+                appointmentId,
+                callerId: socket.id
+            });
+        } else {
+            console.log('❌ Patient not found in onlineUsers');
+        }
+    });
+
+    socket.on('callAccepted', ({ remoteUserId, appointmentId }) => {
+        console.log('📞 callAccepted - remoteUserId:', remoteUserId, 'appointmentId:', appointmentId);
+        const targetSocket = onlineUsers.get(String(remoteUserId));
+        if (targetSocket) {
+            console.log('✅ Emitting callAccepted to doctor socket:', targetSocket);
+            io.to(targetSocket).emit('callAccepted', {
+                appointmentId,
+                patientId: socket.id
+            });
+        }
     });
 
     socket.on('disconnect', () => {
