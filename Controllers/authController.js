@@ -91,7 +91,7 @@ const register = async (req, res) => {
 };
 
 const login = async (req, res) => {
-  console.log('[authController] login body:', req.body);
+  // console.log('[authController] login body:', req.body);
   // Login accepts both normal email addresses and shorthand addresses like user@doctor or user@admin
   const loginEmailSchema = Joi.alternatives().try(
     Joi.string().email(),
