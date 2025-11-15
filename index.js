@@ -7,6 +7,8 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const { Server } = require('socket.io');
 const rateLimiter = require('./Middlewares/rateLimiter');
+const requestId = require('./Middlewares/requestId');
+const logger = require('./Utils/logger');
 
 // initialize DB (Models/db.js connects using MONGODB_URI)
 require('./Models/db');
@@ -35,11 +37,28 @@ app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
+// Attach a request ID for correlation
+app.use(requestId);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(rateLimiter);
+
+// Basic request logging (method, path, reqId)
+app.use((req, res, next) => {
+    const start = Date.now();
+    const reqMeta = logger.withReq(req);
+    logger.info('HTTP request received', reqMeta);
+    res.on('finish', () => {
+        logger.info('HTTP response sent', {
+            ...reqMeta,
+            statusCode: res.statusCode,
+            durationMs: Date.now() - start,
+        });
+    });
+    next();
+});
 
 // Mount API routes
 app.use('/api/auth', authRoutes);
@@ -48,7 +67,7 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/video', videoRoutes);
 app.use('/api/prescriptions', prescriptionRoutes);
 app.use('/api/documents', documentRoutes);
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Note: /uploads static route removed - files now served from S3 via presigned URLs
 
 app.get('/ping', (req, res) => res.send('pong'));
 app.get('/', (req, res) => res.send('API is running'));

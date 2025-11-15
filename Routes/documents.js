@@ -1,49 +1,28 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const multer = require('multer');
 const router = express.Router();
 const { authenticateAccessToken } = require('../Middlewares/auth');
-const { uploadDocument, listDocuments } = require('../Controllers/documentController');
+const {
+  getUploadUrl,
+  confirmUpload,
+  listDocuments,
+  getDownloadUrl,
+  deleteDocument,
+} = require('../Controllers/documentController');
 
-const uploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// Get presigned upload URL
+router.post('/upload-url', authenticateAccessToken, getUploadUrl);
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-    cb(null, `${Date.now()}-${safeName}`);
-  },
-});
+// Confirm upload and save metadata
+router.post('/confirm', authenticateAccessToken, confirmUpload);
 
-const allowedMimeTypes = new Set([
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'image/jpg',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-]);
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (allowedMimeTypes.has(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Unsupported file type'));
-    }
-  },
-});
-
+// List documents (with access control)
 router.get('/', authenticateAccessToken, listDocuments);
-router.post('/', authenticateAccessToken, upload.single('file'), uploadDocument);
+
+// Get presigned download URL (with permission check)
+router.get('/:id/download', authenticateAccessToken, getDownloadUrl);
+
+// Delete document (patient only)
+router.delete('/:id', authenticateAccessToken, deleteDocument);
 
 module.exports = router;
 
