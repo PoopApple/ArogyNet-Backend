@@ -8,24 +8,25 @@ const { sendVerificationEmail } = require('../Utils/mailer');
 
 const REFRESH_EXPIRES_DAYS = parseInt(process.env.REFRESH_EXPIRES_DAYS || '7', 10);
 
-// Helper: infer role from email domain when role is not provided
+// Helper: infer role from email domain when role is not provided (admin inference disabled for registration)
 const detectRoleFromEmail = (email) => {
   if (!email || typeof email !== 'string') return 'patient';
   const e = email.toLowerCase();
   // simple patterns: addresses containing 'admin' or 'doctor'
-  if (e.includes('@admin.') || e.endsWith('@admin') || e.includes('.admin@') || e.includes('@admin')) return 'admin';
+  // NOTE: We intentionally do NOT auto-infer 'admin' here to prevent creating admins via registration
   if (e.includes('@doctor.') || e.endsWith('@doctor') || e.includes('.doctor@') || e.includes('@doctor')) return 'doctor';
   return 'patient';
 };
 const register = async (req, res) => {
   console.log('[authController] register body:', req.body);
-  // Allow normal emails (user@domain.tld) or shorthand internal addresses like user@doctor or user@admin
+  // Allow normal emails (user@domain.tld) or shorthand internal addresses like user@doctor
   const emailSchema = Joi.alternatives().try(
     Joi.string().email(),
-    Joi.string().pattern(/^[A-Za-z0-9._%+-]+@(doctor|admin)$/i)
+    Joi.string().pattern(/^[A-Za-z0-9._%+-]+@(doctor)$/i)
   ).required();
 
-  const schema = Joi.object({ name: Joi.string().required(), email: emailSchema, password: Joi.string().min(6).required(), role: Joi.string().valid('patient','doctor','admin') });
+  // Disallow 'admin' role during public registration
+  const schema = Joi.object({ name: Joi.string().required(), email: emailSchema, password: Joi.string().min(6).required(), role: Joi.string().valid('patient','doctor') });
   const { error, value } = schema.validate(req.body);
   if (error) {
     console.error('[authController] Validation error:', error.message);
@@ -40,6 +41,11 @@ const register = async (req, res) => {
     } catch (e) {
       value.role = 'patient';
     }
+  }
+
+  // Extra guard: if a client still tries to set admin, reject
+  if (value.role === 'admin') {
+    return res.status(403).json({ message: 'Admin creation via API is disabled' });
   }
 
   try {
@@ -193,4 +199,33 @@ const me = async (req, res) => {
   }
 };
 
-module.exports = { register, login, refresh, logout, me };
+const changePassword = async (req, res) => {
+  if (!req.user) return res.status(401).json({ message: 'Not authenticated' });
+
+  const schema = Joi.object({
+    currentPassword: Joi.string().min(6).required(),
+    newPassword: Joi.string().min(6).required(),
+  });
+  const { error, value } = schema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ message: error.message });
+  }
+
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const ok = await bcrypt.compare(value.currentPassword, user.passwordHash);
+    if (!ok) return res.status(401).json({ message: 'Current password is incorrect' });
+
+    user.passwordHash = await bcrypt.hash(value.newPassword, 12);
+    await user.save();
+
+    return res.json({ ok: true, message: 'Password updated successfully' });
+  } catch (err) {
+    console.error('[authController] changePassword error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+module.exports = { register, login, refresh, logout, me, changePassword };

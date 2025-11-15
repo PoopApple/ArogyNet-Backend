@@ -91,6 +91,11 @@ const updateUserRole = async (req, res) => {
   }
 
   try {
+    // For security: prevent promoting any user to admin via API
+    if (req.body.role === 'admin') {
+      return res.status(403).json({ message: 'Assigning admin role via API is disabled' });
+    }
+
     const updates = { role: req.body.role };
     if (req.body.role === 'doctor') {
       updates.doctorApproved = false;
