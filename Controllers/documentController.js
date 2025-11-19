@@ -20,6 +20,9 @@ const formatDocument = (doc) => {
     patientName: patientData.name,
     patientEmail: patientData.email,
     createdAt: doc.createdAt,
+    encrypted: doc.encrypted || false,
+    encryptionNonce: doc.encryptionNonce || undefined,
+    encryptionKeyId: doc.encryptionKeyId || undefined,
   };
 };
 
@@ -61,6 +64,7 @@ const getUploadUrl = async (req, res) => {
       'image/jpg',
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/octet-stream', // For encrypted files
     ];
     if (!allowedTypes.includes(mimeType)) {
       return res.status(400).json({ message: 'Unsupported file type' });
@@ -142,7 +146,7 @@ const getUploadUrl = async (req, res) => {
  */
 const confirmUpload = async (req, res) => {
   try {
-    const { s3Key, originalName, mimeType, size } = req.body;
+    const { s3Key, originalName, mimeType, size, encrypted, encryptionNonce, encryptionKeyId } = req.body;
 
     // Only patients can confirm uploads
     if (req.user?.role !== 'patient') {
@@ -200,6 +204,9 @@ const confirmUpload = async (req, res) => {
       size,
       s3Key,
       s3Bucket: BUCKET_NAME,
+      encrypted: encrypted || false,
+      encryptionNonce: encryptionNonce || null,
+      encryptionKeyId: encryptionKeyId || null,
     });
 
     logger.info('Upload confirmed and metadata saved', logger.withReq(req, {
